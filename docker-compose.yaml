@@ -1,0 +1,169 @@
+name: quakejs
+
+# Define the custom network for all services
+networks:
+  quakejs:
+    name: quakejs
+
+services:
+  # Reverse Proxy and Load Balancer
+  traefik:
+    image: "traefik:v3.3.3"
+    container_name: "traefik"
+    restart: unless-stopped
+    mem_limit: 512m  # Limit memory usage to 512MB
+    cpus: 0.5        # Limit CPU usage to 50% of a single core
+    networks:
+      - quakejs
+    ports:
+      - target: 80
+        published: 80
+        mode: host
+      - target: 27960
+        published: 27960
+        mode: host
+    volumes:
+      - "./data/dynamic:/etc/traefik/dynamic"  # Directory for dynamic configuration
+      - "./data/logs:/logs"  # Directory for logs
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"  # Allow Traefik to access Docker
+    logging:
+      driver: "json-file"
+      options:
+        max-file: 5
+        max-size: 10m
+    command:
+      # General settings
+      - "--global.sendAnonymousUsage=false"
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      - "--accesslog.filepath=/logs/access.log"
+      - "--accesslog.format=common"
+      - "--accesslog.fields.defaultmode=keep"
+      - "--accesslog.fields.headers.defaultmode=keep"
+
+      # API and Dashboard
+      - "--api=true"
+      - "--api.dashboard=true"
+
+      # Docker Provider Configuration
+      - "--providers.docker=true"
+      - "--providers.docker.endpoint=unix:///var/run/docker.sock"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=traefik"
+
+      # File Provider Configuration
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+
+      # Entry points
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.quakejs.address=:27960/tcp"
+      - "--entrypoints.quakejs.address=:27960/udp"
+      - "--entryPoints.web.forwardedHeaders.trustedIPs=127.0.0.1"
+
+      # Metrics
+      - "--metrics.prometheus=true"
+      - "--metrics.prometheus.addEntryPointsLabels=true"
+      - "--entryPoints.metrics.address=:8082"
+      - "--metrics.prometheus.entryPoint=metrics"
+      
+    labels:
+      - "traefik.enable=true"
+      # Traefik Dashboard
+      - "traefik.http.routers.dashboard-web.rule=Host(`traefik-dashboard.example.com`)"
+      - "traefik.http.routers.dashboard-web.entrypoints=web"
+      - "traefik.http.routers.dashboard-web.service=api@internal"
+      - "traefik.http.services.dashboard-web.loadbalancer.server.port=80"
+      - "traefik.http.services.dashboard-web.loadbalancer.server.scheme=http"
+
+  # QuakeJS Server
+  quakejs:
+    image: treyyoder/quakejs
+    container_name: "quakejs"
+    restart: unless-stopped
+    networks:
+      - quakejs
+    expose:
+      - 80
+      - 27960/tcp
+    volumes:
+      - "./data/server.cfg:/quakejs/base/baseq3/server.cfg"  # QuakeJS server configuration
+    environment:
+      - HTTP_PORT=80
+    logging:
+      driver: "json-file"
+      options:
+        max-file: 5
+        max-size: 10m
+    labels:
+      - "traefik.enable=true"
+      # QuakeJS WebSocket
+      - "traefik.tcp.routers.quakejs.rule=HostSNI(`*`)"
+      - "traefik.tcp.routers.quakejs.entrypoints=quakejs"
+      - "traefik.tcp.routers.quakejs.service=quakejs"
+      - "traefik.tcp.services.quakejs.loadbalancer.server.port=27960"
+      # QuakeJS HTTP Access
+      - "traefik.http.routers.quakejs.rule=Host(`quakejs.example.com`)"
+      - "traefik.http.routers.quakejs.entrypoints=web"
+      - "traefik.http.routers.quakejs.service=quakejs"
+      - "traefik.http.services.quakejs.loadbalancer.server.port=80"
+      - "traefik.http.services.quakejs.loadbalancer.server.scheme=http"
+
+  # Proxy for QuakeJS to handle UDP <-> WS conversion
+  quakejs-proxy:
+    image: ghcr.io/wwwlde/quakejs-proxy:v0.0.2
+    container_name: "quakejs-proxy"
+    restart: unless-stopped
+    networks:
+      - quakejs
+    expose:
+      - 27960/udp
+    command:
+      - "-w quakejs:27960"
+    logging:
+      driver: "json-file"
+      options:
+        max-file: 5
+        max-size: 10m
+    labels:
+      - "traefik.enable=true"
+      # QuakeJS UDP Proxy
+      - "traefik.udp.routers.quakejs-proxy.rule=HostSNI(`*`)"
+      - "traefik.udp.routers.quakejs-proxy.entrypoints=quakejs"
+      - "traefik.udp.routers.quakejs-proxy.service=quakejs-proxy"
+      - "traefik.udp.services.quakejs-proxy.loadbalancer.server.port=27960"
+
+  # QuakeJS Stats Tracker
+  quakejs-stats:
+    image: quakejs-stats:local
+    container_name: "quakejs-stats"
+    restart: unless-stopped
+    build:
+      context: build
+      dockerfile: Dockerfile
+    networks:
+      - quakejs
+    expose:
+      - 5000
+    volumes:
+      - "./data/db:/app/db"  # Database storage for tracking statistics
+    environment:
+      - SERVER_IP=quakejs-proxy
+      - SERVER_PORT=27960
+      - RCON_PASSWORD=5tr0nG_P@ssw0rd!
+      - TRACKED_PLAYERS=batman,robin,penguin
+      - MATCH_TIMEOUT=3600
+      - DB_PATH=/app/db/quake_stats.db
+    logging:
+      driver: "json-file"
+      options:
+        max-file: 5
+        max-size: 10m
+    labels:
+      - "traefik.enable=true"
+      # QuakeJS Stats Web UI
+      - "traefik.http.routers.quakejs-stats.rule=Host(`quakejs-stats.example.com`)"
+      - "traefik.http.routers.quakejs-stats.entrypoints=web"
+      - "traefik.http.routers.quakejs-stats.service=quakejs-stats"
+      - "traefik.http.services.quakejs-stats.loadbalancer.server.port=5000"
+      - "traefik.http.services.quakejs-stats.loadbalancer.server.scheme=http"
