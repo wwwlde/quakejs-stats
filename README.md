@@ -1,5 +1,7 @@
 # **QuakeJS Stats Tracker**  
 
+![QuakeJS Stats Tracker Dashboard](./screenshot.png)
+
 ## **📌 Overview**
 This project provides a **QuakeJS** server with a **stats tracking system** using **Docker** and **Traefik** as a reverse proxy.  
 It includes:  
