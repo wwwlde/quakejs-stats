@@ -119,7 +119,7 @@ services:
     expose:
       - 27960/udp
     command:
-      - "-w quakejs:27960"
+      - "-wquakejs:27960"
     logging:
       driver: "json-file"
       options:
@@ -154,6 +154,7 @@ services:
       - TRACKED_PLAYERS=batman,robin,penguin
       - MATCH_TIMEOUT=3600
       - DB_PATH=/app/db/quake_stats.db
+      - RUNNING=True
     logging:
       driver: "json-file"
       options:
