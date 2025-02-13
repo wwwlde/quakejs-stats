@@ -55,9 +55,10 @@ Create a `.env` file to override default settings if needed:
 SERVER_IP=quakejs-proxy
 SERVER_PORT=27960
 RCON_PASSWORD=5tr0nG_P@ssw0rd!
-TRACKED_PLAYERS=batman,robin,penguin
+TRACKED_PLAYERS=Visor,Sarge,Major
 MATCH_TIMEOUT=3600
 DB_PATH=/app/db/quake_stats.db
+RUNNING=True
 ```
 
 ---
